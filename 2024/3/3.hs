@@ -1,8 +1,8 @@
 import Data.Char (isDigit, isAlpha)
 
-data Token = Mul | LeftParen | Comma | RightParen | Number Int | EOF | NoOp deriving (Show, Eq)
+data Token = Mul | LeftParen | Comma | RightParen | Number Int | Do | Dont | EOF | NoOp deriving (Show, Eq)
 
-data Node = MulNode Int Int deriving (Show, Eq)
+data Node = MulNode Int Int | DoNode | DontNode deriving (Show, Eq)
 
 -- This solution is absolutely overkill.
 -- I could have very simply just used regex for example, but wanted to make it a bit more fun
@@ -12,27 +12,42 @@ main = do
     let input :: String = concat $ lines f
     let tokens = scanTokens input
     let nodes = program tokens
-    -- print tokens
-    -- print nodes
-    print $ execute nodes
+    print $ execute nodes True
 
 -- execution
-execute :: [Node] -> Int
-execute [] = 0
-execute ((MulNode n m):nodes) = (n * m) + execute nodes
+execute :: [Node] -> Bool -> Int
+execute [] _ = 0
+execute (DoNode:nodes) _ = execute nodes True
+execute (DontNode:nodes) _ = execute nodes False
+execute ((MulNode n m):nodes) True = (n * m) + execute nodes True
+execute ((MulNode n m):nodes) False = execute nodes False
 
 -- Parser
 program :: [Token] -> [Node]
 program [] = []
+program (Do:xs) = case do' (take 3 (Do:xs)) of
+    Just node -> node : program xs
+    Nothing -> program xs
+program (Dont:xs) = case dont (take 3 (Dont:xs)) of
+    Just node -> node : program xs
+    Nothing -> program xs
 program (Mul:xs) = case multiply (take 6 (Mul:xs)) of
         Just node -> node : program xs
         Nothing -> program xs
 program (x:xs) = program xs
+
+do' :: [Token] -> Maybe Node
+do' [Do, LeftParen, RightParen] = Just DoNode
+do' _ = Nothing
+
+dont :: [Token] -> Maybe Node
+dont [Dont, LeftParen, RightParen] = Just DontNode
+dont _ = Nothing
     
 
 multiply :: [Token] -> Maybe Node
 multiply [Mul, LeftParen, Number n, Comma, Number m, RightParen] = Just $ MulNode n m
-multiply stream = Nothing
+multiply _ = Nothing
 
 -- Lexing
 
@@ -57,7 +72,6 @@ scanToken source start current =
         "," -> (Just Comma, 1)
         "(" -> (Just LeftParen, 1)
         ")" -> (Just RightParen, 1)
-        "mul(" -> (Just Mul, 3)
         (c:_)
             | isAlpha c -> scanIdentifier source start current
             | isDigit c -> scanNumber source start current
@@ -79,9 +93,13 @@ scanIdentifier source start current =
     let next = peekNext source current in
     case next of
         Just c
-            | isAlpha c -> scanIdentifier source start (current + 1)
+            | isAlpha c || c == '\'' -> scanIdentifier source start (current + 1)
             | otherwise -> case word of
+                "don't" -> (Just Dont, 5)
                 "mul" -> (Just Mul, 3)
+                "do" -> case peekNext source current of
+                    Just '(' -> (Just Do, 2)
+                    _ -> scanIdentifier source start (current + 1)
                 _ -> (Just NoOp, length word)
         Nothing -> (Just NoOp, length word)
 
